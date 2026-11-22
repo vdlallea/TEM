@@ -4,8 +4,8 @@ Volume Integral Equation-solver voor de per-lengte-eenheid weerstand R(f) en
 inductie L(f) van een koperen microstrip-lijn.
 
 ## Installatie
-python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
+py -3.12 -m venv .venv
+.venv\Scripts\activate
 pip install -r requirements.txt
 
 ## Gebruik
