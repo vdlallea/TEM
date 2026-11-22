@@ -3,7 +3,7 @@
 Volume Integral Equation-solver voor de per-lengte-eenheid weerstand R(f) en
 inductie L(f) van een koperen microstrip-lijn.
 
-## Installatie
+## Installatie, werkend op python 3.12
 py -3.12 -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
@@ -13,7 +13,7 @@ python scripts/run_all.py
 
 ## Structuur hopelijk: 
 TEM/
-    .gitignore          # al aanwezig via GitHub
+    .gitignore          #via GitHub gedaan
     README.md
     requirements.txt
     src/
