@@ -12,6 +12,8 @@ import numpy as np
 from .geometry import make_mesh
 from .kernels import rect_log_potential
 
+#Mogelijk uitbreiding nog toe te voegen, koper geldt MUr ongeveer 1, dus MU=MU0
+#Andere materialen eenvoudig aanpassen door te vermenigvuldigen met MUr
 MU0 = 4e-7 *np.pi 
 SIGMA_CU = 5.8e7
 
