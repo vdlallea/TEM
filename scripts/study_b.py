@@ -7,8 +7,9 @@ import matplotlib.pyplot as plt
 from src.solver import compute_rl,assemble_inductance_matrix, solve_rl
 from src.geometry import make_mesh, UM
 from src.physics import r_dc, skin_depth, freq_for_depth
-
+from src.plotting import plot_current_density
 from matplotlib.ticker import ScalarFormatter, NullFormatter
+from matplotlib.colors import LogNorm
 
 # Referentiegeometrie in micrometer
 W, T, H = 4.0, 2.0, 3.0
@@ -18,6 +19,10 @@ NX, NY = 24, 16
 
 # Frequentiebereik voor sweep in Hz
 F_MIN, F_MAX = 1e6, 1e11  
+
+# Frequenties waarop J_maps worden geplot
+FREQS_J = (1e6, 1e9, 1e10, 1e11)
+FREQ_LABELS = {1e6: "1 MHz", 1e9: "1 GHz", 1e10: "10 GHz", 1e11: "100 GHz"}
 
 def mesh_check(freqs=(1e9, 1e11), meshes=((8, 6), (16, 12), (24, 16), (32, 22), (40, 28))):
     """
@@ -104,9 +109,45 @@ def plot_freq_sweep(res, path="results/b_freq.png"):
     fig.tight_layout()
     fig.savefig(path, dpi=200)
     plt.show()
-    
+
+
+
+def current_density_maps(path="results/b_current.png"):
+    """|J_z|/J_DC over de doorsnede bij enkele frequenties (log-schaal, grijs = uniform)"""
+    mesh = make_mesh(W, T, H, nx=NX, ny=NY)
+    Lbar = assemble_inductance_matrix(mesh)
+    res = solve_rl(mesh, Lbar, FREQS_J)            # I_tot = 1 A
+    J_dc = 1.0 / (W * UM * T * UM)                 # uniforme stroomdichtheid [A/m^2]
+    J_norm = np.abs(res.J) / J_dc                  # rijen <-> frequenties
+    lim = max(J_norm.max(), 1.0 / J_norm.min())    # symmetrisch rond 1 (op log-schaal)
+
+    for f, Jn in zip(res.freqs, J_norm):
+        print(f"f = {f:.0e} Hz | max |J|/J_DC = {Jn.max():6.2f} | min = {Jn.min():6.3f}")
+
+    fig, axes = plt.subplots(1, len(FREQS_J), figsize=(14, 3.2), constrained_layout=True)
+    for ax, f, J in zip(axes, res.freqs, res.J):
+        pcm = plot_current_density(mesh, J / J_dc, ax, title=FREQ_LABELS.get(f, f"{f:.0e} Hz"))
+        pcm.set_cmap("coolwarm")                            # blauw < 1 < rood, grijs = uniform
+        pcm.set_norm(LogNorm(vmin=1.0 / lim, vmax=lim))     # 1 (grijs) in het midden van de log-schaal
+
+    cbar = fig.colorbar(pcm, ax=axes.tolist(), label=r"$|J_z| / J_{DC}$")
+    cbar.set_ticks([0.1, 0.3, 1, 3, 10])
+    cbar.ax.yaxis.set_major_formatter(ScalarFormatter())
+    cbar.ax.minorticks_off()
+
+    Path(path).parent.mkdir(exist_ok=True)
+    fig.savefig(path, dpi=200)
+    plt.show()
+
 if __name__ == "__main__":
-    #mesh_check()
-    #skin_check()
-    res, mesh = freq_sweep()
-    plot_freq_sweep(res)
+    # Een geschikte mesh vinden
+    #mesh_check() 
+    # Bij deze mesh controleren dat bij gekozen frequentiesbereik
+    # de skindepth groter is dan een aantal cellen 
+    #skin_check()  
+    # Bij de gekozen mesh R(f) en I(f) bepalen over gekozen frequentiebereik
+    res, mesh = freq_sweep() 
+    # Frequetiesweep plotten
+    #plot_freq_sweep(res)
+    # Stroomdichtheid plotten bij enkele gekozen frequenties in frequentiebereik
+    current_density_maps()
