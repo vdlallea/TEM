@@ -14,7 +14,7 @@ def main():
     w_um, t_um, h_um = 4.0, 2.0, 3.0
     freqs = np.logspace(7, 11, 9)   #10MHz tot 100GHz
 
-    res, mesh = compute_rl(w_um, t_um, h_um, freqs, nx=10, ny=6, quad_order=4)
+    res, mesh = compute_rl(w_um, t_um, h_um, freqs, nx=30, ny=18, quad_order=4)
 
     print(f"{'f [Hz]':>10}  {'R [Ohm/m]':>12}  {'L [nH/m]':>10}")
     for f, R, L in zip(res.freqs, res.R, res.L):
