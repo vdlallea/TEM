@@ -14,15 +14,26 @@ from matplotlib.colors import LogNorm
 # Referentiegeometrie in micrometer
 W, T, H = 4.0, 2.0, 3.0
 
+# -----MeshCheck-----
 # Gekozen meshwaarden 
 NX, NY = 24, 16  
 
+# -----Frequentiesweep-----
 # Frequentiebereik voor sweep in Hz
 F_MIN, F_MAX = 1e6, 1e11  
 
+# -----J_maps-----
 # Frequenties waarop J_maps worden geplot
 FREQS_J = (1e6, 1e9, 1e10, 1e11)
 FREQ_LABELS = {1e6: "1 MHz", 1e9: "1 GHz", 1e10: "10 GHz", 1e11: "100 GHz"}
+
+# -----Geometriesweep-----
+# Waarden afmetingen van geometrie (w,t en h)
+GEO_VALUES = (1.0, 2.0, 3.0, 4.0, 6.0, 8.0, 10.0)   # [um]
+# Voor elke geometrie worden R en L bepaald bij deze frequenties
+F_LOW, F_HIGH = 1e6, 1e11
+# Mesh wordt per geometrie gekozen zodat er minstens 3 cellen in skindepth liggen
+MIN_CELLS = 3
 
 def mesh_check(freqs=(1e9, 1e11), meshes=((8, 6), (16, 12), (24, 16), (32, 22), (40, 28))):
     """
@@ -37,6 +48,7 @@ def mesh_check(freqs=(1e9, 1e11), meshes=((8, 6), (16, 12), (24, 16), (32, 22), 
         print(f"nx={nx:2d} ny={ny:2d} N={nx*ny:4d} | "
               f"R = {np.round(res.R, 1)} Ohm/m | "
               f"L = {np.round(res.L * 1e9, 2)} nH/m | {dt:.2f} s")
+
 
 def skin_check(freqs=(1e9, 1e10, 1e11), nx=24, ny=16):
     """
@@ -58,6 +70,7 @@ def skin_check(freqs=(1e9, 1e10, 1e11), nx=24, ny=16):
               f"kleinste cel x/y = {(mesh.xe[1] - mesh.xe[0]) / UM:.4f}/"
               f"{(mesh.ye[1] - mesh.ye[0]) / UM:.4f} um | "
               f"cellen in delta: x={n_x}, y={n_y}")
+
 
 def freq_sweep(n_freq: int = 61):   
     """
@@ -111,7 +124,6 @@ def plot_freq_sweep(res, path="results/b_freq.png"):
     plt.show()
 
 
-
 def current_density_maps(path="results/b_current.png"):
     """|J_z|/J_DC over de doorsnede bij enkele frequenties (log-schaal, grijs = uniform)"""
     mesh = make_mesh(W, T, H, nx=NX, ny=NY)
@@ -139,15 +151,109 @@ def current_density_maps(path="results/b_current.png"):
     fig.savefig(path, dpi=200)
     plt.show()
 
+def cells_in_delta(mesh, delta):
+    """Aantal hele cellen binnen afstand delta van de linker- en onderkant"""
+    n_x = int(np.sum(mesh.xe - mesh.xe[0] <= delta)) - 1
+    n_y = int(np.sum(mesh.ye - mesh.ye[0] <= delta)) - 1
+    return n_x, n_y
+
+
+def choose_mesh(w, t, h, f, min_cells=MIN_CELLS, start=(NX, NY), step=4, max_n=1000):
+    """
+    Verfijn (nx, ny) vanaf `start` tot minstens `min_cells` cellen binnen delta(f) liggen
+    Start via MeshCheck bepaald en volstaat bij lagere frequenties voor skindepth + trade-off: snelheid en nauwkeurigheid R, L
+    Bij hogere frequenties kan het nodig zijn om de mesh te vergroten om de skindepth goed te simuleren
+    """
+    delta = skin_depth(f)
+    nx, ny = start
+    while True:
+        mesh = make_mesh(w, t, h, nx=nx, ny=ny)
+        c_x, c_y = cells_in_delta(mesh, delta)
+        ok = c_x >= min_cells and c_y >= min_cells
+        if ok or mesh.n_cells >= max_n:
+            return nx, ny, c_x, c_y, ok
+        if c_x < min_cells:
+            nx += step
+        if c_y < min_cells:
+            ny += step
+
+
+def geometry_sweep(values=GEO_VALUES, f_low=F_LOW, f_high=F_HIGH):
+    """R en L bij f_low en f_high voor w, t en h apart gevarieerd"""
+    out = {}
+    for name in ("w", "t", "h"):
+        rows = []
+        for v in values:
+            geo = {"w": W, "t": T, "h": H}
+            geo[name] = v
+            nx, ny, c_x, c_y, ok = choose_mesh(geo["w"], geo["t"], geo["h"], f_high)
+            t0 = time.time()
+            mesh = make_mesh(geo["w"], geo["t"], geo["h"], nx=nx, ny=ny)
+            res = solve_rl(mesh, assemble_inductance_matrix(mesh), [f_low, f_high])
+            rows.append(dict(v=v, R=res.R, L=res.L, nx=nx, ny=ny, n=mesh.n_cells,
+                             c_x=c_x, c_y=c_y, ok=ok, t=time.time() - t0, geo=dict(geo)))
+        out[name] = rows
+        print(f"\n--- {name} varieert (andere: w={W}, t={T}, h={H} um) ---")
+        print(f"{name:>5} | mesh   N | cellen in delta | R_low   R_high [Ohm/m] | "
+              f"R_high/R_DC | L_low  L_high [nH/m] | tijd")
+        for r in rows:
+            g = r["geo"]
+            rdc = r_dc(g["w"], g["t"])
+            flag = "" if r["ok"] else "  (!)"
+            print(f"{r['v']:5.1f} | {r['nx']:2d}x{r['ny']:2d} {r['n']:4d} | {r['c_x']}/{r['c_y']}{flag} | "
+                  f"{r['R'][0]:9.1f} {r['R'][1]:9.1f} | {r['R'][1] / rdc:6.2f} | "
+                  f"{r['L'][0] * 1e9:7.2f} {r['L'][1] * 1e9:7.2f} | {r['t']:.1f}s")
+    return out
+
+
+def plot_geometry_sweep(out, path="results/b_geometry.png"):
+    """R en L tegen w, t en h (telkens één parameter varieert, de andere staan vast)"""
+    lab_lo = f"{F_LOW / 1e6:g} MHz"
+    lab_hi = f"{F_HIGH / 1e9:g} GHz"
+    fig, axes = plt.subplots(2, 3, figsize=(12, 6.5), constrained_layout=True)
+    for j, name in enumerate(("w", "t", "h")):
+        rows = out[name]
+        v = np.array([r["v"] for r in rows])
+        R_lo = np.array([r["R"][0] for r in rows])
+        R_hi = np.array([r["R"][1] for r in rows])
+        L_lo = np.array([r["L"][0] for r in rows]) * 1e9
+        L_hi = np.array([r["L"][1] for r in rows]) * 1e9
+        R_dc = np.array([r_dc(r["geo"]["w"], r["geo"]["t"]) for r in rows])
+
+        # R: log-log voor w en t (machtswet), enkel log-x voor h (R hangt er nauwelijks van af)
+        draw = axes[0, j].semilogx if name == "h" else axes[0, j].loglog
+        draw(v, R_lo, "o-", label=lab_lo)
+        draw(v, R_hi, "s-", label=lab_hi)
+        draw(v, R_dc, "k:", linewidth=1, label=r"$R_{DC} = 1/(\sigma w t)$")
+        axes[0, j].set_ylabel(r"R [$\Omega$/m]")
+
+        axes[1, j].semilogx(v, L_lo, "o-")
+        axes[1, j].semilogx(v, L_hi, "s-")
+        axes[1, j].set_ylabel("L [nH/m]")
+
+        for ax in axes[:, j]:
+            ax.set_xlabel(f"{name} [µm]")
+            ax.grid(True, which="both", alpha=0.3)
+    axes[0, 0].legend(fontsize=8)
+
+    Path(path).parent.mkdir(exist_ok=True)
+    fig.savefig(path, dpi=200)
+    plt.show()
+
+
 if __name__ == "__main__":
     # Een geschikte mesh vinden
-    #mesh_check() 
+    mesh_check() 
     # Bij deze mesh controleren dat bij gekozen frequentiesbereik
     # de skindepth groter is dan een aantal cellen 
-    #skin_check()  
+    skin_check()  
     # Bij de gekozen mesh R(f) en I(f) bepalen over gekozen frequentiebereik
     res, mesh = freq_sweep() 
     # Frequetiesweep plotten
-    #plot_freq_sweep(res)
+    plot_freq_sweep(res)
     # Stroomdichtheid plotten bij enkele gekozen frequenties in frequentiebereik
     current_density_maps()
+    # Geometriesweep uitvoeren
+    out = geometry_sweep()
+    # Geometriesweep plotten
+    plot_geometry_sweep(out)
